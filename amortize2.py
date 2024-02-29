@@ -3,6 +3,12 @@ import torch
 from utils import make_lexicon, run_rsa
 
 def amortize_outer(matrix):
+    """
+    take in a matrix that is the result of RSA, and return the outer product of the amortized vectors
+    e.g. M_RSA = M_bool * outer(vec_row, vec_col)
+    if this factorization is possible, then the computation of RSA is entirely captured 
+    by vec_row and vec_col, i.e. a 2 dimensional information
+    """
     # Ensure input is a numpy array for compatibility
     matrix = np.array(matrix)
     
@@ -41,7 +47,7 @@ def amortize_outer(matrix):
 
     # Return the outer product of the optimized vec_row and vec_col, ensuring no gradient information is returned
     # also return the boolean matrix and the loss
-    return torch.outer(vec_row, vec_col).detach().numpy(), mat_bool.detach().numpy(), loss.item()
+    return vec_row.detach().numpy(), vec_col.detach().numpy(), mat_bool.detach().numpy(), loss.item()
 
 if __name__ == '__main__':
 
@@ -51,16 +57,25 @@ if __name__ == '__main__':
     l0 = listeners[0]
     l1 = listeners[1]
 
-    l1_outer, l1_bool, loss_value = amortize_outer(l1)
-    l1_amortized = l1_outer * l1_bool
+    l1_row, l1_col, l1_bool, loss_value = amortize_outer(l1)
     print (loss_value)
+    # print the dimension for l1_row, l1_col, and l1_bool
+    print (l1_row.shape, l1_col.shape, l1_bool.shape)
+    # reconstruct l1 by first tiling l1_col a number of times to match the shape of lexicon
+    l1_col_tiled = np.tile(l1_col, (l1_row.shape[0], 1))
+    # then multiply by l1_bool
+    l1_recon = l1_col_tiled * l1_row[:, np.newaxis] * l1_bool
+    # check l1_recon and l1 has the same shape
+    assert l1_recon.shape == l1.shape
+    # normalize the rows of l1_recon
+    l1_amortized = l1_recon / np.sum(l1_recon, axis=1, keepdims=True)
 
     # # visualize both l1 and l1_amortized as 2D heat map
     import matplotlib.pyplot as plt
     # # put both on the same plot
     fig, axs = plt.subplots(1, 2)
     axs[0].imshow(l1, cmap='gray')
-    axs[0].set_title('l1')
+    axs[0].set_title('l1 = RSA(M)')
     axs[1].imshow(l1_amortized, cmap='gray')
-    axs[1].set_title('l1_amortized')
+    axs[1].set_title('l1_amortized = pragmatic_prior x M')
     plt.show()
